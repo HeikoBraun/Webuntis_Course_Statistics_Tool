@@ -1,0 +1,9 @@
+[project]
+name = "webuntis-course-statistics-tool"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "reportlab>=4.3.1",
+    "webuntis>=0.1.23",
+]
