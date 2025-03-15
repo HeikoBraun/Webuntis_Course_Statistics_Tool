@@ -16,7 +16,7 @@ Before you can use this tool, make sure you have the following:
 
 1. Clone this repository to your local machine:
    ```bash
-   git clone https://github.com/yourusername/webuntis-course-statistics.git
+   git clone https://github.com/HeikoBraun/Webuntis_Course_Statistics_Tool.git
    cd webuntis-course-statistics
 
 2. If you call main.py for the first time, it will generate you a config.toml file in which you have to fill out the data.
