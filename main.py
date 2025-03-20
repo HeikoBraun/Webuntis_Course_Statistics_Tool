@@ -10,6 +10,7 @@ import reportlab.lib.pagesizes
 import reportlab.lib.units
 import reportlab.platypus
 import reportlab.rl_config
+
 import webuntis
 
 """https://python-webuntis.readthedocs.io/en/latest/"""
@@ -21,6 +22,7 @@ class Course:
         self.regular = 0
         self.irregular = 0
         self.cancelled = 0
+        self.alternative = 0
 
     def __str__(self):
         self.calc()
@@ -30,6 +32,7 @@ class Course:
         self.regular += other.regular
         self.irregular += other.irregular
         self.cancelled += other.cancelled
+        self.alternative += other.alternative
         return self
 
     @property
@@ -37,11 +40,18 @@ class Course:
         return self.regular + self.cancelled
 
     @property
-    def percent(self):
+    def percentU(self):
         target = self.target
         if target == 0:
             return 0
         return round(100 * (self.regular + self.irregular) / target)
+
+    @property
+    def percent(self):
+        target = self.target
+        if target == 0:
+            return 0
+        return round(100 * (self.regular + self.irregular + self.alternative) / target)
 
     def incr(self, name=None):
         if name is None or name == "None":
@@ -50,6 +60,8 @@ class Course:
             self.irregular += 1
         elif name == "cancelled":
             self.cancelled += 1
+        elif name == "alternative":
+            self.alternative += 1
         else:
             print(f"Error: '{name}' as code is unknown to me.")
             exit(1)
@@ -59,10 +71,16 @@ class Course:
             self.name,
             self.regular,
             self.irregular,
+            self.alternative,
             self.cancelled,
             self.target,
+            self.percentU,
             self.percent,
         ]
+
+
+def has_same_timeslot(lesson_1, lesson_2):
+    return lesson_1.start == lesson_2.start and lesson_1.end == lesson_2.end
 
 
 def write_initial_toml():
@@ -99,6 +117,8 @@ def get_lesson_name(lesson):
             ret = ret + "/" + str(lesson.studentGroup)
     else:
         ret = lesson.lstext
+    if not ret:
+        ret = "unbekannt"
     return ret
 
 
@@ -119,7 +139,7 @@ def myFirstPage(canvas, doc):
     canvas.restoreState()
 
 
-def gen_pdf(courses, class_name, school_year):
+def gen_pdf(courses, class_name, school_year, alternatives_used):
     filename = f"Unterrichtsstatistik_für_Klasse_{class_name}.pdf"
     pdf = reportlab.platypus.SimpleDocTemplate(
         filename=filename,
@@ -129,7 +149,16 @@ def gen_pdf(courses, class_name, school_year):
     )
     pdf.date_period = f"Anfang Schuljahr {school_year} bis {datetime.date.today()}"
 
-    headings = ["Fach", "regulär", "zusätzlich", "ausgefallen", "soll", "Prozent"]
+    headings = [
+        "Fach",
+        "regulär",
+        "zusätzlich",
+        "alternativ",
+        "ausgefallen",
+        "soll",
+        "ProzentU",
+        "ProzentA",
+    ]
 
     data = [headings]
     all_courses = Course("")
@@ -138,14 +167,14 @@ def gen_pdf(courses, class_name, school_year):
         all_courses += course
     data.append(all_courses.get_table_entry())
 
-    table = reportlab.platypus.Table(data=data, repeatRows=4)
+    table = reportlab.platypus.Table(data=data)
     style = [
         # header
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 12),
+        ("FONTSIZE", (0, 0), (-1, 0), 10),
         # data
         ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 1), (-1, -1), 12),
+        ("FONTSIZE", (0, 1), (-1, -1), 10),
         ("INNERGRID", (0, 0), (-1, -2), 0.25, reportlab.lib.colors.black),
         ("BOX", (0, 0), (-1, -2), 0.5, reportlab.lib.colors.black),
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
@@ -161,7 +190,29 @@ def gen_pdf(courses, class_name, school_year):
         if i % 2 == 1:
             style.append(("BACKGROUND", (0, i), (-1, i), grey))
     table.setStyle(reportlab.platypus.TableStyle(style))
-    pdf.build([table], onFirstPage=myFirstPage)
+
+    # alternatives table
+    data = [["Alternativ", "Stunden"]]
+    data.extend(
+        [k, v]
+        for k, v in sorted(
+            alternatives_used.items(), key=lambda item: item[1], reverse=True
+        )
+    )
+    table_a = reportlab.platypus.Table(data=data)
+    style_a = [
+        # header
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 10),
+        # data
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 1), (-1, -1), 10),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, reportlab.lib.colors.black),
+        ("BOX", (0, 0), (-1, -1), 0.5, reportlab.lib.colors.black),
+    ]
+    table_a.setStyle(reportlab.platypus.TableStyle(style_a))
+
+    pdf.build([table, reportlab.platypus.PageBreak(), table_a], onFirstPage=myFirstPage)
     print(f"Written {filename}")
 
 
@@ -196,14 +247,31 @@ def work_on(config):
                 klasse=klasse, start=actual_school_year.start, end=end_date
             )
             courses = {}
+            alternatives = [
+                lesson for lesson in lessons if lesson.activityType != "Unterricht"
+            ]
+            alternatives_used = {}
             for lesson in lessons:
+                course_name = get_lesson_name(lesson)
                 if lesson.activityType != "Unterricht":
                     continue
-                course_name = get_lesson_name(lesson)
                 if course_name not in courses:
                     courses[course_name] = Course(course_name)
                 courses[course_name].incr(str(lesson.code))
-            gen_pdf(courses.values(), class_name, actual_school_year.name)
+                if lesson.code == "cancelled":
+                    alternatives_found = [
+                        l for l in alternatives if has_same_timeslot(lesson, l)
+                    ]
+                    if alternatives_found:
+                        courses[course_name].incr("alternative")
+                        alternative_name = get_lesson_name(alternatives_found[0])
+                        alternatives_used[alternative_name] = (
+                            alternatives_used.get(alternative_name, 0) + 1
+                        )
+            # print(alternatives_used)
+            gen_pdf(
+                courses.values(), class_name, actual_school_year.name, alternatives_used
+            )
 
 
 if __name__ == "__main__":
