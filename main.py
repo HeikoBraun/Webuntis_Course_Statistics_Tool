@@ -107,18 +107,27 @@ classes="9b"
 
 
 def get_lesson_name(lesson):
-    if lesson.activityType == "Unterricht":
-        if lesson.subjects:
-            ret = str(lesson.subjects[0])
-        else:
-            print(f"Warning! {lesson}")
-            ret = ""
-        if lesson.studentGroup:
-            ret = ret + "/" + str(lesson.studentGroup)
-    else:
+    try:
+        ret = str(lesson.subjects[0])
+    except IndexError:
+        ret = ""
+    if lesson.activityType != "Unterricht":
+        if lesson.lstext:
+            if ret:
+                tmp = f"{ret}: {lesson.lstext}"
+            else:
+                tmp = lesson.lstext
+            ret = tmp[:70]
+    if not ret:
         ret = lesson.lstext
     if not ret:
+        ret = lesson.bkText
+    if not ret:
+        ret = lesson.substText
+    if not ret:
         ret = "unbekannt"
+    if lesson.studentGroup:
+        ret = ret + "/" + str(lesson.studentGroup)
     return ret
 
 
@@ -156,8 +165,8 @@ def gen_pdf(courses, class_name, school_year, alternatives_used):
         "alternativ",
         "ausgefallen",
         "soll",
-        "ProzentU",
-        "ProzentA",
+        "%",
+        "% (+alternativ)",
     ]
 
     data = [headings]
@@ -192,14 +201,14 @@ def gen_pdf(courses, class_name, school_year, alternatives_used):
     table.setStyle(reportlab.platypus.TableStyle(style))
 
     # alternatives table
-    data = [["Alternativ", "Stunden"]]
-    data.extend(
+    data_a = [["Alternativer Unterricht", "Stunden"]]
+    data_a.extend(
         [k, v]
         for k, v in sorted(
             alternatives_used.items(), key=lambda item: item[1], reverse=True
         )
     )
-    table_a = reportlab.platypus.Table(data=data)
+    table_a = reportlab.platypus.Table(data=data_a)
     style_a = [
         # header
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -265,6 +274,7 @@ def work_on(config):
                     if alternatives_found:
                         courses[course_name].incr("alternative")
                         alternative_name = get_lesson_name(alternatives_found[0])
+                        # print("HHH", alternative_name, alternatives_found[0])
                         alternatives_used[alternative_name] = (
                             alternatives_used.get(alternative_name, 0) + 1
                         )
